@@ -75,7 +75,7 @@ class ResNetBackbone(Backbone):
         return preprocess_image(inputs, mode='caffe')
 
 
-def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=None, **kwargs):
+def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=None, depth=True, **kwargs):
     """ Constructs a retinanet model using a resnet backbone.
 
     Args
@@ -89,10 +89,16 @@ def resnet_retinanet(num_classes, backbone='resnet50', inputs=None, modifier=Non
     """
     # choose default input
     if inputs is None:
-        if keras.backend.image_data_format() == 'channels_first':
-            inputs = keras.layers.Input(shape=(3, None, None))
+        if depth:
+            if keras.backend.image_data_format() == 'channels_first':
+                inputs = keras.layers.Input(shape=(4, None, None))
+            else:
+                inputs = keras.layers.Input(shape=(None, None, 4))
         else:
-            inputs = keras.layers.Input(shape=(None, None, 3))
+            if keras.backend.image_data_format() == 'channels_first':
+                inputs = keras.layers.Input(shape=(3, None, None))
+            else:
+                inputs = keras.layers.Input(shape=(None, None, 3))
 
     # create the resnet backbone
     if backbone == 'resnet50':

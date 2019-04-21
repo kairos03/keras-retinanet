@@ -31,6 +31,12 @@ def read_image_bgr(path):
     image = np.asarray(Image.open(path).convert('RGB'))
     return image[:, :, ::-1].copy()
 
+def read_img_rgbd(rgb_path, disp_path):
+    rgb = np.asarray(Image.open(rgb_path))
+    disp = np.asarray(Image.open(disp_path))
+    merged = np.dstack((rgb, disp))
+    return merged.copy()
+
 
 def preprocess_image(x, mode='caffe'):
     """ Preprocess an image by subtracting the ImageNet mean.

@@ -21,7 +21,7 @@ import numpy as np
 from PIL import Image
 
 from .generator import Generator
-from ..utils.image import read_image_bgr
+from ..utils.image import read_image_bgr, read_img_rgbd
 
 kitti_classes = {
     'Car': 0,
@@ -46,6 +46,7 @@ class KittiGenerator(Generator):
         self,
         base_dir,
         subset='train',
+        disp = True,
         **kwargs
     ):
         """ Initialize a KITTI data generator.
@@ -55,9 +56,12 @@ class KittiGenerator(Generator):
             subset: The subset to generate data for (defaults to 'train').
         """
         self.base_dir = base_dir
+        self.disp = disp
 
         label_dir = os.path.join(self.base_dir, subset, 'labels')
         image_dir = os.path.join(self.base_dir, subset, 'images')
+        if disp:
+            disp_dir = os.path.join(self.base_dir, subset, 'disparity')
 
         """
         1    type         Describes the type of object: 'Car', 'Van', 'Truck',
@@ -83,11 +87,16 @@ class KittiGenerator(Generator):
 
         self.image_data = dict()
         self.images = []
+        if disp:
+            self.disps = []
+
         for i, fn in enumerate(os.listdir(label_dir)):
             label_fp = os.path.join(label_dir, fn)
             image_fp = os.path.join(image_dir, fn.replace('.txt', '.png'))
-
             self.images.append(image_fp)
+            if disp:
+                disp_fp = os.path.join(disp_dir, fn.replace('.txt', '.png'))
+                self.disps.append(disp_fp)
 
             fieldnames = ['type', 'truncated', 'occluded', 'alpha', 'left', 'top', 'right', 'bottom', 'dh', 'dw', 'dl',
                           'lx', 'ly', 'lz', 'ry']
@@ -145,6 +154,9 @@ class KittiGenerator(Generator):
     def load_image(self, image_index):
         """ Load an image at the image_index.
         """
+        if self.disp:
+            return read_img_rgbd(self.images[image_index], self.disps[image_index])
+            
         return read_image_bgr(self.images[image_index])
 
     def load_annotations(self, image_index):

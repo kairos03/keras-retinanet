@@ -10,13 +10,15 @@ import re
 import shutil
 import zipfile
 
+import cv2
+import numpy
 
 def extract_data(input_dir, output_dir):
     """
     Extract zipfiles at input_dir into output_dir
     """
     if os.path.isdir(output_dir):
-        print '  Using extracted data at %s.' % output_dir
+        print ('  Using extracted data at %s.' % output_dir)
         return
 
     for filename in (
@@ -26,7 +28,7 @@ def extract_data(input_dir, output_dir):
             'devkit_object.zip'):
         filename = os.path.join(input_dir, filename)
         zf = zipfile.ZipFile(filename, 'r')
-        print 'Unzipping %s ...' % filename
+        print('Unzipping %s ...' % filename)
         zf.extractall(output_dir)
 
 
@@ -64,22 +66,47 @@ def get_image_to_video_mapping(devkit_dir):
     return image_to_video
 
 
+def stereo_to_disparity(left_path, right_path, stereo_bm=None):
+    if stereo_bm is None:
+        stereo_bm = cv2.StereoBM_create(numDisparities=64, blockSize=15)
+    
+    imgL = cv2.imread(left_path, 0)
+    imgR = cv2.imread(right_path, 0)
+
+    disparity = stereo_bm.compute(imgL, imgR)
+
+    return disparity
+
+def make_disparity(base_dir, replace=False):
+    disparity_dir = os.path.join(base_dir, 'disparity')
+    if not os.path.isdir(disparity_dir):
+        os.makedirs(disparity_dir)
+    
+    stereo_bm = cv2.StereoSGBM_create(minDisparity=-64, numDisparities=256, blockSize=5, P1=600, P2=2400, disp12MaxDiff=10, preFilterCap=4, uniquenessRatio=1, speckleWindowSize=150, speckleRange=2)
+    
+    for image_fname in os.listdir(os.path.join(base_dir, 'image_2')):
+        left_path = os.path.join(base_dir, 'image_2', image_fname)
+        right_path = os.path.join(base_dir, 'image_3', image_fname)
+
+        disp = stereo_to_disparity(left_path, right_path, stereo_bm=stereo_bm)        
+        cv2.imwrite(os.path.join(disparity_dir, image_fname), disp)
+
 def split_by_video(training_dir, mapping, split_dir,
-                   use_symlinks=True, right_imges=False):
+                   use_symlinks=True, disparity=True):
     """
     Create one directory per video in split_dir
     """
     new_images_dir = os.path.join(split_dir, 'images')
     new_labels_dir = os.path.join(split_dir, 'labels')
-    if right_imges:
-        new_images3_dir = os.path.join(split_dir, 'images3')
+    if disparity:
+        new_disp_dir = os.path.join(split_dir, 'disparity')
 
     if os.path.isdir(new_images_dir):
         shutil.rmtree(new_images_dir)
     if os.path.isdir(new_labels_dir):
         shutil.rmtree(new_labels_dir)
-    if right_imges:
-        if os.path.isdir(new_images3_dir):
+    if disparity:
+        if os.path.isdir(new_disp_dir):
             shutil.rmtree(new_labels_dir)
 
     for old_image_fname in os.listdir(os.path.join(training_dir, 'image_2')):
@@ -102,8 +129,8 @@ def split_by_video(training_dir, mapping, split_dir,
             shutil.copyfile(old_image_path, new_image_path)
 
         # Copy right image
-        if right_imges:
-            old_image_path = os.path.abspath(os.path.join(training_dir, 'image_3', old_image_fname))
+        if disparity:
+            old_image_path = os.path.abspath(os.path.join(training_dir, 'disparity', old_image_fname))
             image_index_str, image_ext = os.path.splitext(
                 os.path.basename(old_image_fname))
             image_index_int = int(image_index_str)
@@ -111,7 +138,7 @@ def split_by_video(training_dir, mapping, split_dir,
             frame_id = '%09d' % mapping[image_index_int]['frame']
 
             # Copy image
-            new_image_dir = os.path.join(new_images3_dir, video_name)
+            new_image_dir = os.path.join(new_disp_dir, video_name)
             if not os.path.isdir(new_image_dir):
                 os.makedirs(new_image_dir)
             new_image_fname = '%s_%s%s' % (frame_id, image_index_str, image_ext)
@@ -136,7 +163,7 @@ def split_by_video(training_dir, mapping, split_dir,
 
 
 def split_for_training(split_dir, train_dir, val_dir,
-                       use_symlinks=True, right_imges=False):
+                       use_symlinks=True, disparity=True):
     """
     Create directories of images for training and validation
     """
@@ -189,9 +216,9 @@ def split_for_training(split_dir, train_dir, val_dir,
 
         # right image
         # Copy images
-        if right_imges:
-            old_images_dir = os.path.join(split_dir, 'images3', images_dirname)
-            new_images_dir = os.path.join(output_dir, 'images3')
+        if disparity:
+            old_images_dir = os.path.join(split_dir, 'disparity', images_dirname)
+            new_images_dir = os.path.join(output_dir, 'disparity')
             if not os.path.isdir(new_images_dir):
                 os.makedirs(new_images_dir)
             for fname in os.listdir(old_images_dir):
@@ -214,30 +241,34 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    print 'Extracting zipfiles ...'
+    print('Extracting zipfiles ...')
     extract_data(
+
         args.input_dir,
         os.path.join(args.output_dir, 'raw'),
     )
-    print 'Calculating image to video mapping ...'
+    print('Calculating image to video mapping ...')
     mapping = get_image_to_video_mapping(
         os.path.join(args.output_dir, 'raw'),
     )
-
-    print 'Splitting images by video ...'
+    print('Make disparity...')
+    make_disparity(
+        os.path.join(args.output_dir, 'raw', 'training'),
+    )
+    print('Splitting images by video ...')
     split_by_video(
         os.path.join(args.output_dir, 'raw', 'training'),
         mapping,
         os.path.join(args.output_dir, 'video-split'),
         use_symlinks=(not args.no_symlinks),
-        right_imges=True
+        disparity=True
     )
-    print 'Creating train/val split ...'
+    print('Creating train/val split ...')
     split_for_training(
         os.path.join(args.output_dir, 'video-split'),
         os.path.join(args.output_dir, 'train'),
         os.path.join(args.output_dir, 'val'),
         use_symlinks=(not args.no_symlinks),
-        right_imges=True
+        disparity=True
     )
-print 'Done.'
+print('Done.')
